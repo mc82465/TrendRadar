@@ -55,8 +55,8 @@ notification:
   # 不然轻则手机上收到奇怪的广告推送，重则存在更严重的安全隐患
   webhooks:
     feishu_url: "" # 飞书机器人的 webhook URL
-    dingtalk_url: "https://oapi.dingtalk.com/robot/send?access_token=09185315bdd3d3a3897e3d5fc3a55742218329bc3e249c13ff73852182d8a452" # 钉钉机器人的 webhook URL
-    wework_url: "" # 企业微信机器人的 webhook URL
+    # dingtalk_url: "https://oapi.dingtalk.com/robot/send?access_token=09185315bdd3d3a3897e3d5fc3a55742218329bc3e249c13ff73852182d8a452" # 钉钉机器人的 webhook URL
+    wework_url: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=2f0682a5-3174-4bac-aadd-2f8e93357039" # 企业微信机器人的 webhook URL
     telegram_bot_token: "" # Telegram Bot Token
     telegram_chat_id: "" # Telegram Chat ID
     email_from: "" # 发件人邮箱地址
