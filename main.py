@@ -18,6 +18,14 @@ from typing import Dict, List, Tuple, Optional, Union
 import pytz
 import requests
 import yaml
+from mcp_server.tools.deepseek_client import (
+    load_deepseek_api_key as _ds_load_key,
+    build_messages as _ds_build_messages,
+    call_deepseek as _ds_call,
+    save_output as _ds_save_md,
+    generate_ai_html_from_md as _ds_gen_html,
+    send_md_to_notifications as _ds_send_md,
+)
 
 
 VERSION = "3.0.4"
@@ -4080,6 +4088,87 @@ class NewsAnalyzer:
         """获取当前模式的策略配置"""
         return self.MODE_STRATEGIES.get(self.report_mode, self.MODE_STRATEGIES["daily"])
 
+    def _get_latest_txt_file_path(self) -> Optional[Path]:
+        """获取当天最新的 txt 文件路径"""
+        date_folder = format_date_folder()
+        txt_dir = Path("output") / date_folder / "txt"
+        if not txt_dir.exists():
+            return None
+        files = sorted([f for f in txt_dir.iterdir() if f.suffix == ".txt"])
+        return files[-1] if files else None
+
+    def _deepseek_analyze_specific_txt(self, txt_path: Path, html_time_filename: str) -> Optional[Path]:
+        """对指定 txt 文件进行 DeepSeek 总结，输出 MD 并生成对应时间文件名的 AI HTML。"""
+        try:
+            text_to_analyze = txt_path.read_text(encoding="utf-8")
+            default_prompt = (
+                "请执行以下任务并给出结构化、可执行的中文结论：\n"
+                "1) 自动筛选优先级：从输入文本中提炼最重要事项，给出标题、原因、紧迫度(高/中/低)、置信度(0-100)、具体行动建议。\n"
+                "2) 关键信息汇总与AI解读：简洁归纳要点，并解释其在宏观/行业/个股层面的实际影响。\n"
+                "3) 大盘复盘：概述近期市场趋势、投资者情绪（偏乐观/中性/偏悲观）、风格倾向（成长/价值、大盘/小盘、权重/题材等）。\n"
+                "4) 未来14天重大事件前瞻：列出可能发生的重要事件（如CPI/PPI数据、议息/降息会议、失业率、PMI、财报季节点、地缘风险等），给出预计日期或时间窗口、前瞻观点、可能的市场影响、受益/受损板块与代表性标的（标的请给名称或代码）、提前布局建议与风险对冲。\n"
+                "请分段清晰，避免空话，突出可执行建议与风险提示。"
+            )
+            instruction_prompt = os.environ.get("DEEPSEEK_PROMPT", default_prompt)
+            api_key = _ds_load_key()
+            messages = _ds_build_messages(text_to_analyze, instruction_prompt)
+            md_text = _ds_call(api_key, messages)
+
+            # 保存 MD 并生成时间 HTML 文件（AI 风格）
+            _ds_save_md(md_text)
+            date_folder = format_date_folder()
+            html_output_path = Path("output") / date_folder / "html" / f"{html_time_filename}.html"
+            _ds_gen_html(md_text, html_output_path)
+
+            # 推送 MD 到配置平台（仅文本）
+            send_results = _ds_send_md(md_text, CONFIG, self.proxy_url)
+            if send_results:
+                print(f"📤 DeepSeek MD 已发送：{send_results}")
+
+            return html_output_path
+        except Exception as e:
+            print(f"DeepSeek 分析失败（指定文件）：{e}")
+            return None
+
+    def _run_deepseek_summary(self) -> Optional[Path]:
+        """基于当天最新 txt 生成当日 AI 深度分析页面（AI深度分析.html）。"""
+        try:
+            latest_txt = self._get_latest_txt_file_path()
+            if not latest_txt:
+                print("未找到当天 txt，跳过 AI 深度分析页面生成")
+                return None
+
+            text_to_analyze = latest_txt.read_text(encoding="utf-8")
+            default_prompt = (
+                "请执行以下任务并给出结构化、可执行的中文结论：\n"
+                "1) 自动筛选优先级：从输入文本中提炼最重要事项，给出标题、原因、紧迫度(高/中/低)、置信度(0-100)、具体行动建议。\n"
+                "2) 关键信息汇总与AI解读：简洁归纳要点，并解释其在宏观/行业/个股层面的实际影响。\n"
+                "3) 大盘复盘：概述近期市场趋势、投资者情绪（偏乐观/中性/偏悲观）、风格倾向（成长/价值、大盘/小盘、权重/题材等）。\n"
+                "4) 未来14天重大事件前瞻：列出可能发生的重要事件（如CPI/PPI数据、议息/降息会议、失业率、PMI、财报季节点、地缘风险等），给出预计日期或时间窗口、前瞻观点、可能的市场影响、受益/受损板块与代表性标的（标的请给名称或代码）、提前布局建议与风险对冲。\n"
+                "请分段清晰，避免空话，突出可执行建议与风险提示。"
+            )
+            instruction_prompt = os.environ.get("DEEPSEEK_PROMPT", default_prompt)
+            api_key = _ds_load_key()
+            messages = _ds_build_messages(text_to_analyze, instruction_prompt)
+            md_text = _ds_call(api_key, messages)
+
+            # 保存 MD 与 AI 总结页面（不覆盖当日汇总.html）
+            _ds_save_md(md_text)
+            date_folder = format_date_folder()
+            html_output_path = Path("output") / date_folder / "html" / "AI深度分析.html"
+            _ds_gen_html(md_text, html_output_path)
+            print(f"🖨️ 已生成 AI 深度分析 HTML（不覆盖当日汇总）：{html_output_path}")
+
+            # 推送 MD（仅文本）
+            send_results = _ds_send_md(md_text, CONFIG, self.proxy_url)
+            if send_results:
+                print(f"📤 DeepSeek MD 已发送：{send_results}")
+
+            return html_output_path
+        except Exception as e:
+            print(f"DeepSeek 当日总结失败：{e}")
+            return None
+
     def _has_notification_configured(self) -> bool:
         """检查是否配置了任何通知渠道"""
         return any(
@@ -4381,116 +4470,73 @@ class NewsAnalyzer:
     def _execute_mode_strategy(
         self, mode_strategy: Dict, results: Dict, id_to_name: Dict, failed_ids: List
     ) -> Optional[str]:
-        """执行模式特定逻辑"""
-        # 获取当前监控平台ID列表
-        current_platform_ids = [platform["id"] for platform in CONFIG["PLATFORMS"]]
+        """执行模式特定逻辑（集成 DeepSeek：生成 MD → 发送 → 生成 AI 页面；原始新闻生成 raw.html）"""
+        # 保存当前批次 txt 路径与时间信息
+        title_file = Path(save_titles_to_file(results, id_to_name, failed_ids))
+        time_info = title_file.stem
 
-        new_titles = detect_latest_new_titles(current_platform_ids)
-        time_info = Path(save_titles_to_file(results, id_to_name, failed_ids)).stem
-        word_groups, filter_words = load_frequency_words()
-
-        # current模式下，实时推送需要使用完整的历史数据来保证统计信息的完整性
-        if self.report_mode == "current":
-            # 加载完整的历史数据（已按当前平台过滤）
-            analysis_data = self._load_analysis_data()
-            if analysis_data:
-                (
-                    all_results,
-                    historical_id_to_name,
-                    historical_title_info,
-                    historical_new_titles,
-                    _,
-                    _,
-                ) = analysis_data
-
-                print(
-                    f"current模式：使用过滤后的历史数据，包含平台：{list(all_results.keys())}"
-                )
-
-                stats, html_file = self._run_analysis_pipeline(
-                    all_results,
-                    self.report_mode,
-                    historical_title_info,
-                    historical_new_titles,
-                    word_groups,
-                    filter_words,
-                    historical_id_to_name,
-                    failed_ids=failed_ids,
-                )
-
-                combined_id_to_name = {**historical_id_to_name, **id_to_name}
-
-                print(f"HTML报告已生成: {html_file}")
-
-                # 发送实时通知（使用完整历史数据的统计结果）
-                summary_html = None
-                if mode_strategy["should_send_realtime"]:
-                    self._send_notification_if_needed(
-                        stats,
-                        mode_strategy["realtime_report_type"],
-                        self.report_mode,
-                        failed_ids=failed_ids,
-                        new_titles=historical_new_titles,
-                        id_to_name=combined_id_to_name,
-                        html_file_path=html_file,
-                    )
-            else:
-                print("❌ 严重错误：无法读取刚保存的数据文件")
-                raise RuntimeError("数据一致性检查失败：保存后立即读取失败")
+        # 调用 DeepSeek：生成 MD、AI 时间页面并发送 MD
+        ai_html_path = self._deepseek_analyze_specific_txt(title_file, time_info)
+        if ai_html_path:
+            print(f"AI 分析报告已生成: {ai_html_path}")
         else:
+            print("DeepSeek 分析失败或未生成报告页面")
+
+        # 生成原始新闻对照页：HH时MM分.raw.html（不推送）
+        try:
+            current_platform_ids = [platform["id"] for platform in CONFIG["PLATFORMS"]]
+            new_titles = detect_latest_new_titles(current_platform_ids)
+            word_groups, filter_words = load_frequency_words()
             title_info = self._prepare_current_title_info(results, time_info)
-            stats, html_file = self._run_analysis_pipeline(
+
+            stats, total_titles = count_word_frequency(
                 results,
-                self.report_mode,
-                title_info,
-                new_titles,
                 word_groups,
                 filter_words,
                 id_to_name,
-                failed_ids=failed_ids,
+                title_info,
+                self.rank_threshold,
+                new_titles,
+                mode=self.report_mode,
             )
-            print(f"HTML报告已生成: {html_file}")
 
-            # 发送实时通知（如果需要）
-            summary_html = None
-            if mode_strategy["should_send_realtime"]:
-                self._send_notification_if_needed(
-                    stats,
-                    mode_strategy["realtime_report_type"],
-                    self.report_mode,
-                    failed_ids=failed_ids,
-                    new_titles=new_titles,
-                    id_to_name=id_to_name,
-                    html_file_path=html_file,
-                )
+            report_data = prepare_report_data(
+                stats,
+                failed_ids or [],
+                new_titles,
+                id_to_name,
+                mode=self.report_mode,
+            )
 
-        # 生成汇总报告（如果需要）
+            raw_html_str = render_html_content(
+                report_data,
+                total_titles,
+                is_daily_summary=False,
+                mode=self.report_mode,
+                update_info=self.update_info if CONFIG["SHOW_VERSION_UPDATE"] else None,
+            )
+
+            raw_html_path = Path(get_output_path("html", f"{time_info}.raw.html"))
+            Path(raw_html_path).write_text(raw_html_str, encoding="utf-8")
+            print(f"原始新闻 HTML 已生成: {raw_html_path}")
+        except Exception as e:
+            print(f"生成原始新闻 HTML 失败: {e}")
+
+        # 汇总报告（原逻辑）
         summary_html = None
         if mode_strategy["should_generate_summary"]:
             if mode_strategy["should_send_realtime"]:
-                # 如果已经发送了实时通知，汇总只生成HTML不发送通知
-                summary_html = self._generate_summary_html(
-                    mode_strategy["summary_mode"]
-                )
+                summary_html = self._generate_summary_html(mode_strategy["summary_mode"])
             else:
-                # daily模式：直接生成汇总报告并发送通知
                 summary_html = self._generate_summary_report(mode_strategy)
 
         # 打开浏览器（仅在非容器环境）
-        if self._should_open_browser() and html_file:
-            if summary_html:
-                summary_url = "file://" + str(Path(summary_html).resolve())
-                print(f"正在打开汇总报告: {summary_url}")
-                webbrowser.open(summary_url)
-            else:
-                file_url = "file://" + str(Path(html_file).resolve())
-                print(f"正在打开HTML报告: {file_url}")
-                webbrowser.open(file_url)
-        elif self.is_docker_container and html_file:
-            if summary_html:
-                print(f"汇总报告已生成（Docker环境）: {summary_html}")
-            else:
-                print(f"HTML报告已生成（Docker环境）: {html_file}")
+        if self._should_open_browser() and ai_html_path:
+            file_url = "file://" + str(Path(ai_html_path).resolve())
+            print(f"正在打开AI分析HTML报告: {file_url}")
+            webbrowser.open(file_url)
+        elif self.is_docker_container and ai_html_path:
+            print(f"AI分析HTML报告已生成（Docker环境）: {ai_html_path}")
 
         return summary_html
 
@@ -4504,6 +4550,9 @@ class NewsAnalyzer:
             results, id_to_name, failed_ids = self._crawl_data()
 
             self._execute_mode_strategy(mode_strategy, results, id_to_name, failed_ids)
+
+            # 基于最新批次生成当日 AI 深度分析页面
+            self._run_deepseek_summary()
 
         except Exception as e:
             print(f"分析流程执行出错: {e}")
