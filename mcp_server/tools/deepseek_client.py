@@ -512,6 +512,31 @@ def generate_ai_html_from_md(md_text: str, output_html_path: Path) -> Path:
     return output_html_path
 
 
+def _split_text_by_bytes(text: str, max_bytes: int = 3500) -> list[str]:
+    """按 UTF-8 字节长度分段，尽量在行边界切分，避免超过平台限制。"""
+    lines = text.splitlines()
+    chunks = []
+    buf = []
+    current = 0
+    for line in lines:
+        # 在已有缓冲区时，补一个换行符的字节成本
+        prefix = "\n" if buf else ""
+        candidate = prefix + line
+        cand_bytes = len(candidate.encode("utf-8"))
+        if current + cand_bytes <= max_bytes:
+            if prefix:
+                buf.append("")  # 对应上面的换行
+            buf.append(line)
+            current += cand_bytes
+        else:
+            chunks.append("\n".join(buf) if buf else "")
+            buf = [line]
+            current = len(line.encode("utf-8"))
+    if buf:
+        chunks.append("\n".join(buf))
+    return chunks
+
+
 def send_md_to_notifications(md_text: str, config: dict, proxy_url: Optional[str] = None) -> dict:
     """将 MD 文本通过已配置的通知渠道发送（飞书/钉钉/企业微信/Telegram）。"""
     results = {}
@@ -540,13 +565,48 @@ def send_md_to_notifications(md_text: str, config: dict, proxy_url: Optional[str
         except Exception as e:
             results["dingtalk_error"] = str(e)
 
-    # 企业微信
+    # 企业微信（增加错误解析与分段发送回退）
     if config.get("WEWORK_WEBHOOK_URL"):
         url = config["WEWORK_WEBHOOK_URL"]
         payload = {"msgtype": "markdown", "markdown": {"content": md_text}}
         try:
             resp = requests.post(url, json=payload, timeout=30, proxies=proxies)
-            results["wework"] = resp.status_code
+            ok = False
+            err_detail = None
+            if resp.status_code == 200:
+                try:
+                    rj = resp.json()
+                    if rj.get("errcode") == 0:
+                        ok = True
+                    else:
+                        err_detail = f"{rj.get('errmsg')} ({rj.get('errcode')})"
+                except Exception:
+                    err_detail = f"unexpected response: {resp.text[:200]}"
+            else:
+                err_detail = f"http {resp.status_code}: {resp.text[:200]}"
+
+            if ok:
+                results["wework"] = "ok"
+            else:
+                # 回退：分段发送，避免消息过长导致失败
+                chunks = _split_text_by_bytes(md_text, max_bytes=3500)
+                if len(chunks) > 1:
+                    success = True
+                    for i, chunk in enumerate(chunks, 1):
+                        head = f"【分段 {i}/{len(chunks)}】\n\n"
+                        cp = {"msgtype": "markdown", "markdown": {"content": head + chunk}}
+                        try:
+                            r = requests.post(url, json=cp, timeout=30, proxies=proxies)
+                            if r.status_code != 200 or r.json().get("errcode") != 0:
+                                success = False
+                                break
+                        except Exception as e:
+                            success = False
+                            err_detail = str(e)
+                            break
+                    results["wework"] = "chunked_ok" if success else f"chunked_fail: {err_detail or 'unknown'}"
+                else:
+                    results["wework_error"] = err_detail or "send failed"
         except Exception as e:
             results["wework_error"] = str(e)
 

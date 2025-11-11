@@ -3295,6 +3295,10 @@ def send_to_notifications(
     """发送数据到多个通知平台"""
     results = {}
 
+    # 为满足“仅向订阅平台发送 DeepSeek 总结，不推送所有新闻”的需求，
+    # 这里仅保留邮件发送汇总 HTML；平台类推送（飞书/钉钉/企业微信/Telegram/ntfy）在 DeepSeek 总结阶段已通过 MD 文档发送。
+    send_news_to_channels = False
+
     if CONFIG["PUSH_WINDOW"]["ENABLED"]:
         push_manager = PushRecordManager()
         time_range_start = CONFIG["PUSH_WINDOW"]["TIME_RANGE"]["START"]
@@ -3332,26 +3336,26 @@ def send_to_notifications(
 
     update_info_to_send = update_info if CONFIG["SHOW_VERSION_UPDATE"] else None
 
-    # 发送到飞书
-    if feishu_url:
+    # 发送到飞书（已改为通过 DeepSeek MD 推送，此处跳过新闻列表推送）
+    if send_news_to_channels and feishu_url:
         results["feishu"] = send_to_feishu(
             feishu_url, report_data, report_type, update_info_to_send, proxy_url, mode
         )
 
-    # 发送到钉钉
-    if dingtalk_url:
+    # 发送到钉钉（已改为通过 DeepSeek MD 推送，此处跳过新闻列表推送）
+    if send_news_to_channels and dingtalk_url:
         results["dingtalk"] = send_to_dingtalk(
             dingtalk_url, report_data, report_type, update_info_to_send, proxy_url, mode
         )
 
-    # 发送到企业微信
-    if wework_url:
+    # 发送到企业微信（已改为通过 DeepSeek MD 推送，此处跳过新闻列表推送）
+    if send_news_to_channels and wework_url:
         results["wework"] = send_to_wework(
             wework_url, report_data, report_type, update_info_to_send, proxy_url, mode
         )
 
-    # 发送到 Telegram
-    if telegram_token and telegram_chat_id:
+    # 发送到 Telegram（已改为通过 DeepSeek MD 推送，此处跳过新闻列表推送）
+    if send_news_to_channels and telegram_token and telegram_chat_id:
         results["telegram"] = send_to_telegram(
             telegram_token,
             telegram_chat_id,
@@ -3362,8 +3366,8 @@ def send_to_notifications(
             mode,
         )
 
-    # 发送到 ntfy
-    if ntfy_server_url and ntfy_topic:
+    # 发送到 ntfy（已改为通过 DeepSeek MD 推送，此处跳过新闻列表推送）
+    if send_news_to_channels and ntfy_server_url and ntfy_topic:
         results["ntfy"] = send_to_ntfy(
             ntfy_server_url,
             ntfy_topic,
@@ -3388,7 +3392,7 @@ def send_to_notifications(
         )
 
     if not results:
-        print("未配置任何通知渠道，跳过通知发送")
+        print("已跳过平台新闻推送（改为 DeepSeek MD），且未配置邮件，跳过通知发送")
 
     # 如果成功发送了任何通知，且启用了每天只推一次，则记录推送
     if (
