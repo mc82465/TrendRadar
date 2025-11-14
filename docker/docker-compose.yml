@@ -25,6 +25,19 @@ services:
       - NTFY_SERVER_URL=${NTFY_SERVER_URL:-https://ntfy.sh}
       - NTFY_TOPIC=${NTFY_TOPIC:-}
       - NTFY_TOKEN=${NTFY_TOKEN:-}
-      - CRON_SCHEDULE=${CRON_SCHEDULE:-*/5 * * * *}
+      - CRON_SCHEDULE=${CRON_SCHEDULE:-0 * * * *}
       - RUN_MODE=${RUN_MODE:-cron}
       - IMMEDIATE_RUN=${IMMEDIATE_RUN:-true}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+
+  nginx:
+    image: nginx:alpine
+    container_name: trend-radar-web
+    restart: unless-stopped
+    depends_on:
+      - trend-radar
+    ports:
+      - "80:80"
+    volumes:
+      - ../output:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro

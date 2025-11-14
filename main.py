@@ -1621,6 +1621,10 @@ def generate_html_report(
         root_file_path = Path("index.html")
         with open(root_file_path, "w", encoding="utf-8") as f:
             f.write(html_content)
+        ensure_directory_exists("output")
+        output_index_path = Path("output") / "index.html"
+        with open(output_index_path, "w", encoding="utf-8") as f:
+            f.write(html_content)
 
     return file_path
 
