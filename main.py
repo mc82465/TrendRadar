@@ -113,6 +113,7 @@ def load_config():
             .get("push_window", {})
             .get("push_record_retention_days", 7),
         },
+        "PUSH_TIMES": config_data.get("notification", {}).get("push_times", []),
         "WEIGHT_CONFIG": {
             "RANK_WEIGHT": config_data["weight"]["rank_weight"],
             "FREQUENCY_WEIGHT": config_data["weight"]["frequency_weight"],
@@ -384,6 +385,42 @@ class PushRecordManager:
             print(f"推送记录已保存: {report_type} at {now.strftime('%H:%M:%S')}")
         except Exception as e:
             print(f"保存推送记录失败: {e}")
+
+    def has_pushed_time(self, time_str: str) -> bool:
+        record_file = self.get_today_record_file()
+        if not record_file.exists():
+            return False
+        try:
+            with open(record_file, "r", encoding="utf-8") as f:
+                record = json.load(f)
+            pushed_times = record.get("pushed_times", [])
+            return time_str in pushed_times
+        except Exception as e:
+            print(f"读取推送时刻记录失败: {e}")
+            return False
+
+    def record_push_time(self, report_type: str, time_str: str):
+        record_file = self.get_today_record_file()
+        now = get_beijing_time()
+        record = {}
+        if record_file.exists():
+            try:
+                with open(record_file, "r", encoding="utf-8") as f:
+                    record = json.load(f)
+            except Exception:
+                record = {}
+        record.setdefault("pushed_times", [])
+        if time_str not in record["pushed_times"]:
+            record["pushed_times"].append(time_str)
+        record["pushed"] = True
+        record["push_time"] = now.strftime("%Y-%m-%d %H:%M:%S")
+        record["report_type"] = report_type
+        try:
+            with open(record_file, "w", encoding="utf-8") as f:
+                json.dump(record, f, ensure_ascii=False, indent=2)
+            print(f"推送时刻已记录: {time_str}")
+        except Exception as e:
+            print(f"保存推送时刻失败: {e}")
 
     def is_in_time_range(self, start_time: str, end_time: str) -> bool:
         """检查当前时间是否在指定时间范围内"""
@@ -3303,6 +3340,25 @@ def send_to_notifications(
     # 这里仅保留邮件发送汇总 HTML；平台类推送（飞书/钉钉/企业微信/Telegram/ntfy）在 DeepSeek 总结阶段已通过 MD 文档发送。
     send_news_to_channels = False
 
+    if CONFIG.get("PUSH_TIMES"):
+        push_times = []
+        for t in CONFIG["PUSH_TIMES"]:
+            try:
+                parts = t.strip().split(":")
+                h = int(parts[0])
+                m = int(parts[1])
+                push_times.append(f"{h:02d}:{m:02d}")
+            except Exception:
+                pass
+        now_str = get_beijing_time().strftime("%H:%M")
+        if now_str not in push_times:
+            print(f"推送时刻控制：当前时间 {now_str} 不在指定推送时刻 {push_times} 中，跳过推送")
+            return results
+        push_manager = PushRecordManager()
+        if push_manager.has_pushed_time(now_str):
+            print(f"推送时刻控制：今天 {now_str} 已推送过，跳过本次推送")
+            return results
+
     if CONFIG["PUSH_WINDOW"]["ENABLED"]:
         push_manager = PushRecordManager()
         time_range_start = CONFIG["PUSH_WINDOW"]["TIME_RANGE"]["START"]
@@ -3399,13 +3455,14 @@ def send_to_notifications(
         print("已跳过平台新闻推送（改为 DeepSeek MD），且未配置邮件，跳过通知发送")
 
     # 如果成功发送了任何通知，且启用了每天只推一次，则记录推送
-    if (
-        CONFIG["PUSH_WINDOW"]["ENABLED"]
-        and CONFIG["PUSH_WINDOW"]["ONCE_PER_DAY"]
-        and any(results.values())
-    ):
-        push_manager = PushRecordManager()
-        push_manager.record_push(report_type)
+    if any(results.values()):
+        if CONFIG.get("PUSH_TIMES"):
+            now_str = get_beijing_time().strftime("%H:%M")
+            push_manager = PushRecordManager()
+            push_manager.record_push_time(report_type, now_str)
+        elif CONFIG["PUSH_WINDOW"]["ENABLED"] and CONFIG["PUSH_WINDOW"]["ONCE_PER_DAY"]:
+            push_manager = PushRecordManager()
+            push_manager.record_push(report_type)
 
     return results
 
@@ -4570,6 +4627,24 @@ class NewsAnalyzer:
 def main():
     try:
         analyzer = NewsAnalyzer()
+        now_str = get_beijing_time().strftime("%H:%M")
+        push_times = []
+        for t in CONFIG.get("PUSH_TIMES", []):
+            try:
+                parts = t.strip().split(":")
+                h = int(parts[0])
+                m = int(parts[1])
+                push_times.append(f"{h:02d}:{m:02d}")
+            except Exception:
+                pass
+        if push_times:
+            if now_str not in push_times:
+                print(f"推送时刻控制：当前时间 {now_str} 不在指定推送时刻 {push_times} 中，程序跳过运行")
+                return
+            push_manager = PushRecordManager()
+            if push_manager.has_pushed_time(now_str):
+                print(f"推送时刻控制：今天 {now_str} 已推送过，程序跳过运行")
+                return
         analyzer.run()
     except FileNotFoundError as e:
         print(f"❌ 配置文件错误: {e}")
