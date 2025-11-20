@@ -36,6 +36,11 @@ notification:
   batch_send_interval: 3 # 批次发送间隔（秒）
   feishu_message_separator: "━━━━━━━━━━━━━━━━━━━" # feishu 消息分割线
 
+  # 🕐 定时推送（可选功能）
+  push_times:
+    - "08:30"
+    - "20:30"
+
   # 🕐 推送时间窗口控制（可选功能）
   # 用途：限制推送的时间范围，避免非工作时间打扰
   # 适用场景：
@@ -56,8 +61,8 @@ notification:
   # 不然轻则手机上收到奇怪的广告推送，重则存在更严重的安全隐患
   webhooks:
     feishu_url: "" # 飞书机器人的 webhook URL
-    # dingtalk_url: "https://oapi.dingtalk.com/robot/send?access_token=09185315bdd3d3a3897e3d5fc3a55742218329bc3e249c13ff73852182d8a452" # 钉钉机器人的 webhook URL
-    wework_url: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=2f0682a5-3174-4bac-aadd-2f8e93357039" # 企业微信机器人的 webhook URL
+    dingtalk_url: "" # 钉钉机器人的 webhook URL
+    wework_url: "" # 企业微信机器人的 webhook URL
     telegram_bot_token: "" # Telegram Bot Token
     telegram_chat_id: "" # Telegram Chat ID
     email_from: "" # 发件人邮箱地址
@@ -81,21 +86,29 @@ platforms:
     name: "今日头条"
   - id: "baidu"
     name: "百度热搜"
-  - id: "wallstreetcn-hot"
-    name: "华尔街见闻"
   - id: "thepaper"
     name: "澎湃新闻"
-  - id: "bilibili-hot-search"
-    name: "bilibili 热搜"
-  - id: "cls-hot"
-    name: "财联社热门"
   - id: "ifeng"
     name: "凤凰网"
-  - id: "tieba"
-    name: "贴吧"
-  - id: "weibo"
-    name: "微博"
-  - id: "douyin"
-    name: "抖音"
-  - id: "zhihu"
-    name: "知乎"
+  - id: "cankaoxiaoxi"
+    name: "参考消息"
+  - id: "sputniknewscn"
+    name: "卫星通讯社"
+  - id: "zaobao"
+    name: "联合早报"
+  - id: "wallstreetcn-hot"
+    name: "华尔街见闻 最热"
+  - id: "wallstreetcn-quick"
+    name: "华尔街见闻 快讯"
+  - id: "wallstreetcn-news"
+    name: "华尔街见闻 最新"
+  - id: "cls-hot"
+    name: "财联社热门"
+  - id: "gelonghui"
+    name: "格隆汇"
+  - id: "xueqiu"
+    name: "雪球"
+  - id: "jin10"
+    name: "金十数据"
+  - id: "fastbull"
+    name: "快讯通"
