@@ -216,13 +216,11 @@ def get_beijing_time():
 
 
 def format_date_folder():
-    """格式化日期文件夹"""
-    return get_beijing_time().strftime("%Y年%m月%d日")
+    return get_beijing_time().strftime("%Y%m%d")
 
 
 def format_time_filename():
-    """格式化时间文件名"""
-    return get_beijing_time().strftime("%H时%M分")
+    return get_beijing_time().strftime("%Hh%Mmin")
 
 
 def clean_title(title: str) -> str:
@@ -4167,23 +4165,51 @@ class NewsAnalyzer:
         try:
             text_to_analyze = txt_path.read_text(encoding="utf-8")
             default_prompt = (
-                "请执行以下任务并给出结构化、可执行的中文结论：\n"
-                "1) 自动筛选优先级：从输入文本中提炼最重要事项，给出标题、原因、紧迫度(高/中/低)、置信度(0-100)、具体行动建议。\n"
-                "2) 关键信息汇总与AI解读：简洁归纳要点，并解释其在宏观/行业/个股层面的实际影响。\n"
-                "3) 大盘复盘：概述近期市场趋势、投资者情绪（偏乐观/中性/偏悲观）、风格倾向（成长/价值、大盘/小盘、权重/题材等）。\n"
-                "4) 未来14天重大事件前瞻：列出可能发生的重要事件（如CPI/PPI数据、议息/降息会议、失业率、PMI、财报季节点、地缘风险等），给出预计日期或时间窗口、前瞻观点、可能的市场影响、受益/受损板块与代表性标的（标的请给名称或代码）、提前布局建议与风险对冲。\n"
-                "请分段清晰，避免空话，突出可执行建议与风险提示。"
+                # "请执行以下任务并给出结构化、可执行的中文结论：\n"
+                # "1) 自动筛选优先级：从输入文本中提炼最重要事项，给出标题、原因、紧迫度(高/中/低)、置信度(0-100)、具体行动建议。\n"
+                # "2) 关键信息汇总与AI解读：简洁归纳要点，并解释其在宏观/行业/个股层面的实际影响。\n"
+                # "3) 大盘复盘：概述近期市场趋势、投资者情绪（偏乐观/中性/偏悲观）、风格倾向（成长/价值、大盘/小盘、权重/题材等）。\n"
+                # "4) 未来14天重大事件前瞻：列出可能发生的重要事件（如CPI/PPI数据、议息/降息会议、失业率、PMI、财报季节点、地缘风险等），给出预计日期或时间窗口、前瞻观点、可能的市场影响、受益/受损板块与代表性标的（标的请给名称或代码）、提前布局建议与风险对冲。\n"
+                # "请分段清晰，避免空话，突出可执行建议与风险提示。"
+
+                "基于以下{news_count}条新闻标题，请完成专业的投资分析：\n\n"
+                "## 1. 紧急事件雷达扫描\n"
+                "• 识别3-5个最紧迫的市场信号\n"
+                "• 每个信号包含：[信号类型｜影响范围｜时间紧迫度H/M/L｜置信度%]\n"
+                "• 立即行动建议（24小时内）\n\n"
+                
+                "## 2. 主题投资机会挖掘\n"
+                "• 归纳3-4个核心投资主题\n"
+                "• 每个主题：驱动逻辑、持续性、相关板块、龙头标的\n"
+                "• 配置建议：核心仓位/卫星仓位\n"
+                
+                "## 3. 市场情绪与风格诊断\n"
+                "• 情绪指标：贪婪/恐惧指数（0-100）\n"
+                "• 风格轮动：成长vs价值、大盘vs小盘\n"
+                "• 资金流向：北向/两融/主力资金倾向\n\n"
+                
+                "## 4. 关键事件时间轴（未来14天）\n"
+                "• 经济数据日历：具体日期+预期影响\n"
+                "• 政策会议：时点+可能决策\n"
+                "• 财报日历：重点公司+预期\n"
+                "• 地缘风险：潜在黑天鹅\n\n"
+                
+                "## 5. 具体投资组合建议\n"
+                "• 进攻组合：3-5个标的+买入区间\n"
+                "• 防御组合：2-3个标的+配置比例\n"
+                "• 对冲工具：期权/期货策略建议\n"
+                
+                "输出要求：表格化呈现关键数据，重点内容加粗，避免叙述性空话。"
             )
             instruction_prompt = os.environ.get("DEEPSEEK_PROMPT", default_prompt)
             api_key = _ds_load_key()
             messages = _ds_build_messages(text_to_analyze, instruction_prompt)
             md_text = _ds_call(api_key, messages)
 
-            # 保存 MD 并生成时间 HTML 文件（AI 风格）
-            _ds_save_md(md_text)
             date_folder = format_date_folder()
             html_output_path = Path("output") / date_folder / "html" / f"{html_time_filename}.html"
             _ds_gen_html(md_text, html_output_path)
+            _ds_save_md(md_text, html_output_path.with_suffix(".md"))
 
             # 推送 MD 到配置平台（仅文本）
             send_results = _ds_send_md(md_text, CONFIG, self.proxy_url)
@@ -4616,8 +4642,9 @@ class NewsAnalyzer:
 
             self._execute_mode_strategy(mode_strategy, results, id_to_name, failed_ids)
 
-            # 基于最新批次生成当日 AI 深度分析页面
-            self._run_deepseek_summary()
+            should_generate_daily_ai = os.environ.get("GENERATE_DAILY_AI_SUMMARY", "").strip().lower() in ("1", "true", "yes", "on")
+            if should_generate_daily_ai:
+                self._run_deepseek_summary()
 
         except Exception as e:
             print(f"分析流程执行出错: {e}")
